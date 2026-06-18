@@ -1,0 +1,22 @@
+# Datos — no subir archivos pesados al repo
+data/raw/*.csv
+data/raw/*.json
+data/processed/*.parquet
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
