@@ -1,37 +1,34 @@
 # loader.py
 """
-este script se encarga de leer el archivo csv y cargarlo a la base de datos postgreSQL.
+este script se encarga de leer los dos archivos CSV con Spark y devolverlos como DataFrames.
+No modifica los datos, solo los carga.
 Pasos:
-1. Lee el CSV con pandas
-2. Selecciona y renombra las columnas necesarias
-3. Se conecta a PostgreSQL
-4. Inserta los datos en la tabla hotel_reviews
+1. Inicia una sesión de Spark
+2. Lee el CSV de reseñas de hoteles
+3. Lee el CSV de estados de EE.UU.
+4. Devuelve los dos DataFrames
 """
 #Imports
-import pandas as pd
-from sqlalchemy import create_engine
+from pyspark.sql import SparkSession
 
-def load_csv_to_postgres(csv_path, connection_string):
+def load_data(hotels_path, states_path):
     """
-    Lee el CSV y lo carga a PostgreSQL.
+    Lee el CSV y devuelve dos DataFrames: uno con las reseñas de hoteles y otro con los estados.
     """
-    # Paso 1: Lee el CSV con pandas
-    df = pd.read_csv(csv_path)
-    # Paso 2: Selecciona y renombra las columnas necesarias
-    df = df[['name', 'city', 'province', 'reviews.date', 'reviews.rating', 'reviews.text', 'reviews.title', 'reviews.username']]
-    df.columns = ['hotel_name', 'city', 'province', 'review_date', 'rating', 'review_text', 'review_title', 'username']
-    # Paso 3: Se conecta a PostgreSQL
-    engine = create_engine(connection_string)
-    # Paso 4: Inserta los datos en la tabla hotel_reviews
-    df.to_sql('hotel_reviews', engine, if_exists='append', index=False) 
-
-    print(f"Cargados {len(df)} registros en hotel_reviews")
+    # Paso 1: Inicia una sesión de Spark
+    spark = SparkSession.builder.appName("HotelReviewsLoader").getOrCreate()
+    # Paso 2: Lee el CSV de reseñas de hoteles
+    hotels_df = spark.read.csv(hotels_path, header=True, inferSchema=True)
+    # Paso 3: Lee el CSV de estados de EE.UU.
+    states_df = spark.read.csv(states_path, header=True, inferSchema=True)
+    # Paso 4: Devuelve los dos DataFrames
+    return hotels_df, states_df
 
 if __name__ == "__main__":
-    #Ruta al CSV original 
-    csv_path = "data/raw/Datafiniti_Hotel_Reviews.csv"
-    # Credenciales definidas en docker/docker-compose.yml
-    connection_string = "postgresql://bigdata:bigdata123@localhost:5433/hotel_reviews"
-    load_csv_to_postgres(csv_path, connection_string)
+    hotels_path = "data/raw/Datafiniti_Hotel_Reviews.csv"
+    states_path = "data/raw/states.csv"
+    hotels_df, states_df = load_data(hotels_path, states_path)
+    print(f"Hoteles: {hotels_df.count()} filas, {len(hotels_df.columns)} columnas")
+    print(f"Estados: {states_df.count()} filas, {len(states_df.columns)} columnas")
 
 

@@ -1,29 +1,25 @@
 # exporter.py
 """
-este script se encarga de exportar los datos limpios a formato parquet para su uso en modelos o búsqueda.
+este script se encarga de guardar el DataFrame limpio en formato parquet.
 Pasos:
-1. Lee los datos limpios desde PostgreSQL
-2. Exporta a formato parquet
+1. Recibe el DataFrame ya limpio y transformado
+2. Lo guarda en formato parquet en la carpeta data/processed
 """
-#Imports
-import pandas as pd
-from sqlalchemy import create_engine
+# Imports, no necesita ninguno extra, Spark ya viene del DataFrame
 
-def export_to_parquet(connection_string, output_path):
+def export_to_parquet(df, output_path):
     """
-    Lee los datos limpios desde PostgreSQL y los exporta a formato parquet.
+    Guarda el DataFrame en formato parquet.
     """
-    # Paso 1: Lee los datos limpios desde PostgreSQL
-    engine = create_engine(connection_string)
-    df = pd.read_sql("SELECT * FROM hotel_reviews", engine)
-
-    # Paso 2: Exporta a formato parquet
-    df.to_parquet(output_path, index=False)
-    print(f"Exportados {len(df)} registros a {output_path}")
+    # Paso 1: Guarda el DataFrame en parquet
+    df.write.mode("overwrite").parquet(output_path)
+    print(f"Exportados {df.count()} registros a {output_path}")
 
 if __name__ == "__main__":
-    # Credenciales definidas en docker/docker-compose.yml
-    connection_string = "postgresql://bigdata:bigdata123@localhost:5433/hotel_reviews"
-    # Ruta de salida del parquet
-    output_path = "data/processed/hotel_reviews.parquet"
-    export_to_parquet(connection_string, output_path)
+    from loader import load_data
+    from cleaner import mrmusculo
+    # Cargar y limpiar datos
+    hotels_df, states_df = load_data("data/raw/Datafiniti_Hotel_Reviews.csv", "data/raw/states.csv")
+    df = mrmusculo(hotels_df, states_df)
+    # Exportar a parquet
+    export_to_parquet(df, "data/processed/hotel_reviews.parquet")
