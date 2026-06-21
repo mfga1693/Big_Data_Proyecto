@@ -6,3 +6,4 @@ numpy
 sentence-transformers
 langdetect
 pytest
+elasticsearch==8.13.0
