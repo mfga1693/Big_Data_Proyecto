@@ -43,8 +43,14 @@ def mrmusculo(hotels_df, states_df):
     # Paso 6: Crea la columna sentiment
     df = df.withColumn("sentiment", when(col("rating") >= 4, 1).otherwise(0))
 
-    return df.select("hotel_name", "city", "province", "review_date", "rating", "review_full_text", "sentiment")    
-    
+    # Paso 7: Conserva region y division del dataset de estados (enriquecimiento del join)
+    return df.select(
+        "hotel_name", "city", "province", "review_date", "rating",
+        "review_full_text", "sentiment",
+        col("Region").alias("region"),
+        col("Division").alias("division"),
+    )
+
 
 if __name__ == "__main__":
     from loader import load_data

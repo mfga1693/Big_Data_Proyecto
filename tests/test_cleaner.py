@@ -113,7 +113,7 @@ def test_join_inner_descarta_provincias_sin_estado(spark):
 
 
 def test_columnas_de_salida(spark):
-    """El DataFrame final tiene exactamente las 7 columnas esperadas."""
+    """El DataFrame final tiene exactamente las 9 columnas esperadas."""
     # Arrange
     hotels = spark.createDataFrame(
         [("Hotel A", "LA", "CA", "2021-01-01", 5.0, "ok", "t1", "u1")],
@@ -124,5 +124,19 @@ def test_columnas_de_salida(spark):
     # Assert: nombres y orden de columnas
     assert result.columns == [
         "hotel_name", "city", "province", "review_date",
-        "rating", "review_full_text", "sentiment",
+        "rating", "review_full_text", "sentiment", "region", "division",
     ]
+
+
+def test_conserva_region_y_division(spark):
+    """El join con states aporta region y division al resultado final."""
+    # Arrange: provincia CA -> West / Pacific (segun el helper _states)
+    hotels = spark.createDataFrame(
+        [("Hotel A", "LA", "CA", "2021-01-01", 5.0, "ok", "t1", "u1")],
+        HOTELS_COLS,
+    )
+    # Act
+    fila = mrmusculo(hotels, _states(spark)).collect()[0]
+    # Assert
+    assert fila["region"] == "West"
+    assert fila["division"] == "Pacific"
