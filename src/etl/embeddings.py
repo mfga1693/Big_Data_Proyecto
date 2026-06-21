@@ -1,7 +1,7 @@
 # embeddings.py
 #
 # Objetivo: generar un vector (embedding) por cada resena, dentro del flujo de Spark.
-# Lo vamos a escribir juntos paso a paso. Empieza aqui.
+
 
 # ===== BLOQUE 1: imports y configuracion (HF_HOME) =====
 import os
@@ -68,7 +68,7 @@ def embed_udf(textos: pd.Series) -> pd.Series:
 
 # ===== BLOQUE 4: pegar la columna 'embedding' al DataFrame =====
 def add_embeddings(df, text_col="review_full_text", output_col="embedding"):
-    """Agrega la columna de embeddings a un DataFrame de Spark."""
+    """Agrega la columna de embeddings a un DataFrame de Spark. Aun aqui no se ejecuta nada, solo preparamos la receta."""
     # Si el texto es nulo, lo reemplazamos por "" para que el modelo no falle (los 285 nulos):
     texto_seguro = coalesce(col(text_col), lit(""))
     # withColumn crea la columna nueva aplicando el UDF. Spark es perezoso:
@@ -84,14 +84,10 @@ def generate_embeddings(input_path, output_path, spark=None):
         creamos_spark = True
 
     df = spark.read.parquet(input_path)                 # lee el parquet limpio
-    # Contamos sobre 'df' (entrada) y NO sobre 'df_emb' (salida): agregar una columna
-    # no cambia el numero de filas, y contar df_emb dispararia el modelo otra vez
-    # (count es una accion), recalculando los 27.116 vectores. Asi lo evitamos.
-    total = df.count()
     df_emb = add_embeddings(df)                          # agrega la columna 'embedding' (Bloque 4)
     df_emb.write.mode("overwrite").parquet(output_path)  # AQUÍ sí se ejecuta todo (Spark perezoso)
 
-    print(f"Embeddings generados para {total} reseñas -> {output_path}")
+    print(f"Embeddings generados para {df_emb.count()} reseñas -> {output_path}")
 
     if creamos_spark:                                   # solo cerramos lo que nosotros abrimos
         spark.stop()
