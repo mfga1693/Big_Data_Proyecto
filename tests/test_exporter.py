@@ -1,5 +1,4 @@
 # test_exporter.py
-# Autor: Andres
 #
 # Pruebas unitarias del modulo exporter (funcion export_to_parquet): que escriba
 # el DataFrame en Parquet y que al leerlo de vuelta los datos sean los mismos

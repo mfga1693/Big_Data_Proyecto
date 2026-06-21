@@ -1,5 +1,4 @@
 # test_embeddings.py
-# Autor: Andres
 #
 # Pruebas unitarias del modulo embeddings (funcion add_embeddings): que agregue
 # la columna 'embedding' con vectores de 384 dimensiones y que maneje el texto
