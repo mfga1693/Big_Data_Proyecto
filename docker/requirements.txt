@@ -4,4 +4,5 @@ pandas
 pyarrow
 numpy
 sentence-transformers
+langdetect
 pytest
