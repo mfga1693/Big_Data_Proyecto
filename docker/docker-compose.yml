@@ -1,0 +1,103 @@
+services:
+
+  # ─────────────────────────────────────────
+  # Spark master — imagen propia (Spark + librerias de ML)
+  # Se construye desde docker/Dockerfile para incluir sentence-transformers/torch.
+  # ─────────────────────────────────────────
+  spark:
+    build:
+      context: ..                  # raiz del repo (para poder copiar docker/requirements.txt)
+      dockerfile: docker/Dockerfile
+    image: hotel-bigdata-spark:3.5.4
+    container_name: spark
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "8080:8080"   # Spark UI
+      - "7077:7077"   # Spark master port
+    volumes:
+      - ../data:/opt/spark/data        # Acceso a los CSVs y parquet
+      - ../src:/opt/spark/src          # Codigo fuente
+      - ../scripts:/opt/spark/scripts  # Scripts (prueba de humo, etc.)
+    networks:
+      - proyecto-net
+
+  spark-worker:
+    image: hotel-bigdata-spark:3.5.4   # reutiliza la imagen construida por 'spark'
+    container_name: spark-worker
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark:7077
+    environment:
+      - SPARK_WORKER_MEMORY=4g         # subido a 4g: torch necesita algo de RAM
+      - SPARK_WORKER_CORES=2
+    depends_on:
+      - spark
+    volumes:
+      - ../data:/opt/spark/data
+      - ../src:/opt/spark/src
+      - ../scripts:/opt/spark/scripts
+    networks:
+      - proyecto-net
+
+  # ─────────────────────────────────────────
+  # PostgreSQL
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_USER: bigdata
+      POSTGRES_PASSWORD: bigdata123
+      POSTGRES_DB: hotel_reviews
+    ports:
+      - "5433:5432"   # 5432 ocupado por Postgres local — usamos 5433 en el host
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../src/db/schemas/postgres_schema.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - proyecto-net
+
+  # ─────────────────────────────────────────
+  # Elasticsearch
+  # ─────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false        # Sin auth para desarrollo local
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - proyecto-net
+
+  # ─────────────────────────────────────────
+  # Kibana
+  # ─────────────────────────────────────────
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - proyecto-net
+
+# ─────────────────────────────────────────
+# Volúmenes persistentes
+# ─────────────────────────────────────────
+volumes:
+  postgres_data:
+  es_data:
+
+# ─────────────────────────────────────────
+# Red interna
+# ─────────────────────────────────────────
+networks:
+  proyecto-net:
+    driver: bridge

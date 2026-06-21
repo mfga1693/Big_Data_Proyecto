@@ -1,0 +1,6 @@
+# Dependencias de Python para el ETL y la generacion de embeddings.
+# torch se instala aparte (version CPU) en el Dockerfile.
+pandas
+pyarrow
+numpy
+sentence-transformers
