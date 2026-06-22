@@ -26,5 +26,9 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
 RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" && \
     chmod -R 777 /opt/hf_cache
 
+# Driver JDBC de PostgreSQL para que Spark pueda escribir a la base relacional.
+# Se hornea en la imagen (en los jars de Spark) para no depender de --packages/Ivy.
+RUN python3 -c "import urllib.request; urllib.request.urlretrieve('https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar', '/opt/spark/jars/postgresql-42.7.3.jar')"
+
 # Volvemos al usuario no-root que usa la imagen de Spark.
 USER spark
