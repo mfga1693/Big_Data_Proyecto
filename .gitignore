@@ -2,7 +2,8 @@
 data/raw/*.csv
 data/raw/*.json
 data/processed/*.parquet
-data/results/          # salidas de Spark (CSVs + .crc + _SUCCESS): no versionar
+# salidas de Spark de los modelos (CSVs + .crc + _SUCCESS): no versionar
+data/results/
 
 # Python
 __pycache__/
