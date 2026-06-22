@@ -11,9 +11,11 @@ Modelos implementados:
 """
 
 from pyspark.sql import SparkSession
+import os
+from pyspark.sql.functions import col, count
 
 from src.models.logistic_regression import train_logistic_regression
-from src.models.random_forest import train_random_forest, get_feature_importance
+from src.models.random_forest import train_random_forest
 
 
 def print_metrics(metrics):
@@ -86,6 +88,110 @@ def show_confusion_matrix(predictions, model_name):
         .show()
     )
 
+
+def save_results(
+    df_model,
+    lr_predictions,
+    rf_predictions,
+    lr_metrics,
+    rf_metrics,
+    output_path="data/results"
+):
+    """
+    Guarda los resultados principales del entrenamiento para usarlos luego
+    en modelos.ipynb sin necesidad de volver a entrenar los modelos.
+    """
+
+    os.makedirs(output_path, exist_ok=True)
+
+    # 1. Guardar métricas comparativas
+    metrics_df = spark_create_metrics_dataframe(
+        df_model.sparkSession,
+        [lr_metrics, rf_metrics]
+    )
+
+    metrics_df.coalesce(1).write.mode("overwrite").option(
+        "header", True
+    ).csv(f"{output_path}/metrics_comparison.csv")
+
+    # 2. Guardar matrices de confusión
+    lr_confusion = (
+        lr_predictions
+        .groupBy("sentiment", "prediction")
+        .count()
+        .orderBy("sentiment", "prediction")
+    )
+
+    rf_confusion = (
+        rf_predictions
+        .groupBy("sentiment", "prediction")
+        .count()
+        .orderBy("sentiment", "prediction")
+    )
+
+    lr_confusion.coalesce(1).write.mode("overwrite").option(
+        "header", True
+    ).csv(f"{output_path}/confusion_matrix_lr.csv")
+
+    rf_confusion.coalesce(1).write.mode("overwrite").option(
+        "header", True
+    ).csv(f"{output_path}/confusion_matrix_rf.csv")
+
+    # 3. Guardar predicciones para curvas ROC
+    lr_predictions.select(
+        "sentiment",
+        "prediction",
+        "probability"
+    ).write.mode("overwrite").parquet(f"{output_path}/predictions_lr.parquet")
+
+    rf_predictions.select(
+        "sentiment",
+        "prediction",
+        "probability"
+    ).write.mode("overwrite").parquet(f"{output_path}/predictions_rf.parquet")
+
+    # 4. Guardar distribución de sentimiento por región
+    sentiment_region = (
+        df_model
+        .groupBy("region", "sentiment")
+        .agg(count("*").alias("count"))
+        .orderBy("region", "sentiment")
+    )
+
+    sentiment_region.coalesce(1).write.mode("overwrite").option(
+        "header", True
+    ).csv(f"{output_path}/sentiment_by_region.csv")
+
+    print(f"\nResultados guardados en: {output_path}")
+    
+
+def spark_create_metrics_dataframe(spark, metrics_list):
+    """
+    Convierte la lista de métricas de modelos en un DataFrame de Spark.
+    """
+
+    rows = [
+        (
+            metrics["model"],
+            float(metrics["accuracy"]),
+            float(metrics["precision"]),
+            float(metrics["recall"]),
+            float(metrics["f1"]),
+            float(metrics["auc_roc"])
+        )
+        for metrics in metrics_list
+    ]
+
+    columns = [
+        "model",
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "auc_roc"
+    ]
+
+    return spark.createDataFrame(rows, columns)
 
 def main():
     """
@@ -161,11 +267,16 @@ def main():
 
     # Comparación final entre ambos modelos.
     print_comparison(lr_metrics, rf_metrics)
+    
+    save_results(
+    df_model=df_model,
+    lr_predictions=lr_predictions,
+    rf_predictions=rf_predictions,
+    lr_metrics=lr_metrics,
+    rf_metrics=rf_metrics,
+    output_path="data/results"
+)
 
-    # Feature importance del Random Forest: indica qué variables fueron más usadas por el bosque
-    print("\nFeature importance de Random Forest:")
-    feature_importance = get_feature_importance(rf_model)
-    print(feature_importance)
 
     spark.stop()
 

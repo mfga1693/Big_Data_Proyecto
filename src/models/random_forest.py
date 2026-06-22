@@ -94,18 +94,3 @@ def train_random_forest(train_df, test_df, use_region_features=True):
 
     return model, predictions, metrics
 
-
-def get_feature_importance(model):
-    """
-    Obtiene las importancias de variables del Random Forest.
-
-    Entrada:
-    - model: pipeline entrenado.
-
-    Salida:
-    - Vector de importancias.
-    """
-
-    rf_model = model.stages[-1]
-
-    return rf_model.featureImportances
