@@ -1,7 +1,14 @@
 from pyspark.sql import SparkSession
 from elasticsearch import Elasticsearch, helpers
-import math
 import pandas as pd
+import hashlib
+from elasticsearch.helpers import BulkIndexError
+
+
+def _doc_id(row):
+    base = f"{row.get('hotel_name','')}|{row.get('review_date','')}|{row.get('review_full_text','')}"
+    return hashlib.md5(base.encode("utf-8")).hexdigest()
+
 
 def load_to_elasticsearch():
     print("Iniciando sesión de Spark...")
@@ -12,8 +19,11 @@ def load_to_elasticsearch():
     df = spark.read.parquet(parquet_path)
 
     print("Convirtiendo datos para inyección...")
-    
     pandas_df = df.toPandas()
+    if "review_date" in pandas_df.columns:
+        pandas_df["review_date"] = pandas_df["review_date"].astype(str).str.replace(" ", "T")
+        pandas_df["review_date"] = pandas_df["review_date"].replace("NaT", None) 
+        
     pandas_df = pandas_df.astype(object).where(pd.notna(pandas_df), None)
     records = pandas_df.to_dict(orient="records")
 
@@ -22,12 +32,11 @@ def load_to_elasticsearch():
     def bm25_generator(data):
         for row in data:
             doc = row.copy()
-            if "embedding" in doc:
-                del doc["embedding"]
-            
+            doc.pop("embedding", None)
             yield {
                 "_index": "hotel-reviews-bm25",
-                "_source": doc
+                "_id": _doc_id(row),
+                "_source": doc,
             }
 
     def semantic_generator(data):
@@ -35,20 +44,26 @@ def load_to_elasticsearch():
             doc = row.copy()
             if "embedding" in doc and hasattr(doc["embedding"], "tolist"):
                 doc["embedding"] = doc["embedding"].tolist()
-                
             yield {
                 "_index": "hotel-reviews-semantic",
-                "_source": doc
+                "_id": _doc_id(row),
+                "_source": doc,
             }
 
+    try:
+        print("Inyectando datos en índice BM25...")
+        helpers.bulk(es, bm25_generator(records))
+        print("Índice BM25 poblado con éxito")
 
-    print("Inyectando datos en índice BM25...")
-    helpers.bulk(es, bm25_generator(records))
-    print("Índice BM25 poblado con éxito")
+        print("Inyectando datos en índice Semántico...")
+        helpers.bulk(es, semantic_generator(records))
+        print("Índice Semántico poblado con éxito")
 
-    print("Inyectando datos en índice Semántico...")
-    helpers.bulk(es, semantic_generator(records))
-    print("Índice Semántico poblado con éxito")
+    except BulkIndexError as e:
+        print("\n" + "="*60)
+        print("ELASTICSEARCH RECHAZÓ EL DOCUMENTO")
+        print(e.errors[0]) 
+        print("="*60 + "\n")
 
     spark.stop()
 

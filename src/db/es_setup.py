@@ -9,8 +9,9 @@ def setup_elasticsearch():
                 "hotel_name": {"type": "keyword"},
                 "city": {"type": "keyword"},
                 "province": {"type": "keyword"},
+                "review_date": {"type": "date"},
                 "rating": {"type": "float"},
-                "review_full_text": {"type": "text"}, # Campo clave para BM25
+                "review_full_text": {"type": "text"},
                 "sentiment": {"type": "integer"},
                 "region": {"type": "keyword"},
                 "division": {"type": "keyword"}
@@ -23,6 +24,7 @@ def setup_elasticsearch():
                 "hotel_name": {"type": "keyword"},
                 "city": {"type": "keyword"},
                 "province": {"type": "keyword"},
+                "review_date": {"type": "date"},
                 "rating": {"type": "float"},
                 "review_full_text": {"type": "text"},
                 "sentiment": {"type": "integer"},
@@ -50,6 +52,7 @@ def setup_elasticsearch():
         es.indices.delete(index=index_semantic)
     es.indices.create(index=index_semantic, body=semantic_mapping)
     print(f"Índice '{index_semantic}' creado exitosamente.")
+
 
 if __name__ == "__main__":
     setup_elasticsearch()
