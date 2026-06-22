@@ -1,7 +1,5 @@
 # Diagramas
 
-Carpeta para los diagramas del proyecto (los pide el rubro: "diagramas, mappings y
-esquemas para ambos motores de bases de datos").
 
 Diagramas esperados:
 
