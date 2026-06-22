@@ -21,7 +21,8 @@ exploran con **Kibana**.
 | `states.csv` | Catálogo de estados de EE.UU. (nombre, código, región, división). | `State Code` |
 
 El cruce se hace con un **inner join** entre `province` (reseñas) y `State Code`
-(estados), enriqueciendo cada reseña con su región y división.
+(estados), enriqueciendo cada reseña con su región y división. El dataset final
+tiene **25.600 reseñas**.
 
 ## Stack y arquitectura
 
@@ -36,7 +37,8 @@ Todo corre en contenedores definidos en `docker/docker-compose.yml`:
 | `kibana` | kibana:8.13.0 | 5601 | Búsqueda semántica y dashboards |
 
 > La imagen de Spark se construye a partir de `apache/spark:3.5.4` y agrega
-> `torch` (CPU), `sentence-transformers`, `pandas`, `pyarrow` y `pytest`. Además
+> `torch` (CPU), `sentence-transformers`, `langdetect`, `pandas`, `pyarrow`,
+> `pytest`, el cliente de Elasticsearch y el driver JDBC de PostgreSQL. Además
 > **pre-descarga el modelo `all-MiniLM-L6-v2`** dentro de la imagen, para no
 > depender de la red ni de permisos de escritura en tiempo de ejecución.
 
@@ -52,21 +54,23 @@ Big_Data_Proyecto/
 │   ├── docker-compose.yml    # definición de los 5 servicios
 │   └── requirements.txt      # dependencias de Python de la imagen
 ├── docs/
-│   └── embeddings_teoria.md  # notas teóricas de embeddings
-├── scripts/
-│   └── smoke_embeddings.py   # prueba rápida del modelo (20 reseñas)
+│   ├── ManualEjecucion.docx  # manual de ejecución (entregable)
+│   ├── ManualEjecucion.pdf   # manual de ejecución (entregable, PDF)
+│   ├── kibana_dashboard.ndjson  # dashboard de Kibana (5 visualizaciones)
+│   └── diagrams/             # arquitectura, esquema Postgres, mappings ES (PNG)
 ├── src/
-│   ├── etl/                  # carga y preprocesamiento (loader, cleaner, exporter, embeddings)
-│   ├── features/             # feature engineering (TF-IDF) para ML
-│   ├── models/               # modelos de predicción (Spark ML)
-│   ├── db/                   # escritura a PostgreSQL
-│   └── search/               # carga a Elasticsearch y búsqueda semántica
+│   ├── etl/                  # carga y preprocesamiento (loader, cleaner, exporter, embeddings, run_etl)
+│   ├── db/                   # PostgreSQL + Elasticsearch (es_setup, es_indexer, postgres_writer, main_materializacion, schemas/)
+│   ├── search/               # generación de consultas para búsqueda semántica (generate_query)
+│   └── models/               # modelos de predicción Spark ML (pipeline, logistic_regression, random_forest, main_models, resultados.ipynb)
 └── tests/                    # pruebas unitarias (pytest)
 ```
 
 ## Requisitos previos
 
 - **Docker Desktop** (se recomienda asignarle al menos **8–12 GB de RAM**).
+- Colocar los CSV en `data/raw/`: `Datafiniti_Hotel_Reviews.csv` y `states.csv`
+  (no van en el repo).
 - No hace falta instalar Python, Java ni Spark en la máquina: todo vive en los
   contenedores.
 
@@ -87,12 +91,6 @@ docker compose up -d
 docker ps
 ```
 
-Para trabajar solo con el ETL alcanza con `spark` y `spark-worker`:
-
-```bash
-docker compose up -d spark spark-worker
-```
-
 Interfaces web una vez levantado:
 
 - Spark UI → http://localhost:8080
@@ -103,78 +101,68 @@ Interfaces web una vez levantado:
 
 ## 1. Carga, preprocesamiento y embeddings (ETL)
 
-> Módulos en `src/etl/`. Esta sección genera los datos limpios y los vectores.
+> Módulos en `src/etl/`. Genera los datos limpios y los vectores.
 
-Entrar al contenedor de Spark y ubicarse en el directorio de trabajo:
+Entrar al contenedor de Spark:
 
 ```bash
 docker exec -it spark bash
 cd /opt/spark
+export PYTHONPATH=/opt/spark/src:/opt/spark/src/etl
 ```
 
-**a) Generar el parquet limpio** (lee los CSV, limpia, cruza con estados y exporta):
+Programa principal del ETL. Sin la bandera corre rápido (sin embeddings); los
+embeddings son un paso pesado de una sola vez:
 
 ```bash
-/opt/spark/bin/spark-submit src/etl/exporter.py
-# -> data/processed/hotel_reviews.parquet  (27.116 registros)
+/opt/spark/bin/spark-submit src/etl/run_etl.py                    # carga + limpieza + parquet limpio
+/opt/spark/bin/spark-submit src/etl/run_etl.py --with-embeddings  # además genera los embeddings
 ```
 
-**b) (Opcional) Prueba de humo** del modelo de embeddings sobre 20 reseñas:
-
-```bash
-export PYTHONPATH=/opt/spark/src
-/opt/spark/bin/spark-submit scripts/smoke_embeddings.py
-# -> "Dimensiones del vector: 384"
-```
-
-**c) Generar los embeddings** de todas las reseñas (columna `embedding` de 384 dims):
-
-```bash
-export PYTHONPATH=/opt/spark/src
-/opt/spark/bin/spark-submit src/etl/embeddings.py
-# -> data/processed/hotel_reviews_embeddings.parquet
-```
-
-Flujo: `loader` (lee CSV) → `cleaner` (limpia + join + crea `review_full_text` y
-`sentiment`) → `exporter` (parquet limpio) → `embeddings` (agrega la columna
-`embedding` con un `pandas_udf` de Spark).
+Flujo: `loader` (lee CSV) → `cleaner` (limpia + join + filtro de idioma + crea
+`review_full_text` y `sentiment`) → `exporter` (parquet limpio) → `embeddings`
+(agrega la columna `embedding` de 384 dims con un `pandas_udf` de Spark).
 
 ## 2. Materialización en PostgreSQL y Elasticsearch
 
-> Módulos en `src/db/` y `src/search/`. Escribe los datos en las bases.
+> Módulos en `src/db/`. Escribe los datos en ambas bases.
 
-- **PostgreSQL:** se cargan las reseñas limpias (esquema en
-  `src/db/schemas/postgres_schema.sql`). Validación con consultas SQL en el puerto
-  `5433`.
-- **Elasticsearch:** se crean **dos índices**:
-  - uno **sin vectores** (búsqueda tradicional por texto),
-  - uno **con vectores** (campo `embedding` de 384 dims para búsqueda semántica).
-  - Los *mappings* de ambos índices se documentan en `src/search/`.
+Programa principal que crea los índices de ES, indexa los documentos y escribe las
+tablas de Postgres (las fuentes crudas antes del cruce y el dataset final después):
 
 ```bash
-# Ejemplo (programa principal de materialización):
-/opt/spark/bin/spark-submit src/db/load_postgres.py
-/opt/spark/bin/spark-submit src/search/load_elasticsearch.py
+export PYTHONPATH=/opt/spark
+/opt/spark/bin/spark-submit src/db/main_materializacion.py
 ```
+
+- **PostgreSQL:** tabla `hotel_reviews` (dataset cruzado) más `hotels_raw` y
+  `states` (fuentes antes del cruce). Esquema en
+  `src/db/schemas/postgres_schema.sql`. Validación con SQL en el puerto `5433`.
+- **Elasticsearch:** dos índices, `hotel-reviews-bm25` (sin vectores) y
+  `hotel-reviews-semantic` (campo `embedding` de 384 dims, similitud coseno). Los
+  *mappings* se definen en `src/db/es_setup.py`.
 
 ## 3. Modelos de predicción (Spark ML)
 
-> Módulos en `src/features/` y `src/models/`. Variable objetivo: `sentiment`.
+> Módulos en `src/models/`. Variable objetivo: `sentiment`.
 
-Se entrenan **al menos dos modelos** con Spark MLlib (por ejemplo Regresión
-Logística y Random Forest) usando como features el TF-IDF del texto y el rating,
-y se comparan sus resultados.
+Se entrenan **dos modelos** con Spark MLlib (Regresión Logística y Random Forest)
+usando como features el TF-IDF del texto y el rating, y se comparan sus resultados.
 
 ```bash
-/opt/spark/bin/spark-submit src/models/train.py
+export PYTHONPATH=/opt/spark
+/opt/spark/bin/spark-submit src/models/main_models.py
 ```
+
+El análisis comparativo de resultados está en `src/models/resultados.ipynb`.
 
 ## 4. Búsqueda semántica y dashboards (Kibana)
 
-- Consultas en Kibana **con vectores** (kNN sobre `embedding`) y **sin vectores**
-  (match de texto), documentando cuál funciona mejor.
-- **Dashboard** con al menos 5 visualizaciones (distribución de ratings, sentiment
-  por estado/región, hoteles más reseñados, etc.).
+- Búsqueda semántica: `python3 src/search/generate_query.py` genera dos consultas
+  (BM25 sin vectores y kNN con vectores) para pegar en Kibana → Dev Tools y comparar
+  cuál funciona mejor.
+- **Dashboard** con 5 visualizaciones: importar `docs/kibana_dashboard.ndjson` en
+  Kibana → Stack Management → Saved Objects → Import.
 
 ---
 
@@ -188,12 +176,12 @@ docker exec -it spark bash
 cd /opt/spark
 
 # pyspark vive en $SPARK_HOME/python (no es un paquete pip), hay que agregarlo al path:
-export PYTHONPATH=/opt/spark/python:$(ls /opt/spark/python/lib/py4j-*-src.zip):/opt/spark/src
+export PYTHONPATH=/opt/spark/src:/opt/spark/python:$(ls /opt/spark/python/lib/py4j-*-src.zip)
 
 python3 -m pytest tests/ -v
 ```
 
-Resultado esperado: **12 pruebas en verde** (cleaner, loader, exporter y
+Resultado esperado: **15 pruebas en verde** (loader, cleaner, exporter y
 embeddings). Las pruebas de embeddings usan el modelo real; si `sentence-transformers`
 no estuviera instalado, se saltan automáticamente (`importorskip`).
 
@@ -203,17 +191,17 @@ no estuviera instalado, se saltan automáticamente (`importorskip`).
   entrenado en inglés (las reseñas están en inglés). Pequeño y apto para correr
   localmente. Los vectores se normalizan (`normalize_embeddings=True`) para
   facilitar la búsqueda por similitud coseno.
+- **Filtro de idioma:** con `langdetect` se descartan las reseñas que no están en
+  inglés (~1%) y los textos sin sentido, porque el modelo de embeddings solo
+  funciona bien con inglés.
 - **Chunking:** se consideró, pero **no se aplicó**: las reseñas son cortas y no
   superan el límite de tokens del modelo, así que no hay truncamiento que mitigar.
-- **HF_HOME:** la caché del modelo apunta a una carpeta escribible
-  (`/opt/hf_cache` en la imagen). El código respeta la variable de entorno si ya
-  está definida.
 - **Datos no versionados:** los CSV de `data/raw/` y los parquet de
   `data/processed/` están en `.gitignore` (archivos pesados). Para compartirlos se
   usa un `.tar.gz` o un enlace a Drive/OneDrive.
 - **Parquet en nanosegundos:** si un parquet fue escrito por pandas/pyarrow, Spark
-  3.5 no lo lee por defecto. Por eso el parquet limpio se **regenera con Spark**
-  (`exporter.py`) antes de generar embeddings.
+  3.5 no lo lee por defecto. Por eso el parquet limpio se **genera con Spark** antes
+  de generar embeddings.
 
 ## Equipo
 
