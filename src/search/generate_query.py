@@ -50,10 +50,6 @@ def main():
         print("GET hotel-reviews-semantic/_search")
         print(json.dumps(query_knn, indent=2, ensure_ascii=False))
         print("=" * 60 + "\n")
-        print("Comparar: BM25 encuentra coincidencias EXACTAS de palabras; kNN "
-              "encuentra por SIGNIFICADO (capta sinónimos). Documentar cuál da "
-              "mejores resultados para la búsqueda de prueba.\n")
-
 
 if __name__ == "__main__":
     main()

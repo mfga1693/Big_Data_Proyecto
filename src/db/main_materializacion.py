@@ -1,15 +1,9 @@
-"""
-Programa principal de materializacion.
-
-Orquesta la escritura de los datos procesados (el parquet del ETL) en las dos
-bases de datos del proyecto:
-  1. Elasticsearch: crea los indices (BM25 sin vectores + semantico con vectores).
-  2. Elasticsearch: carga (indexa) los documentos en ambos indices.
-  3. PostgreSQL: escribe los datos en la tabla relacional.
-
-Usa los modulos de materializacion ya existentes (no reimplementa nada).
-
-Uso (dentro del contenedor de Spark, parado en /opt/spark):
+"""Materialización de datos para el proyecto de búsqueda semántica.
+Este script se encarga de:
+1. Crear los índices necesarios en Elasticsearch (BM25 y semántico)
+2. Indexar los documentos en ambos índices de Elasticsearch
+3. Escribir los datos en PostgreSQL para consultas analíticas
+Uso (dentro del contenedor de Spark, en /opt/spark):
     export PYTHONPATH=/opt/spark
     /opt/spark/bin/spark-submit src/db/main_materializacion.py
 """
